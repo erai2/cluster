@@ -4,11 +4,29 @@ This repository contains a Streamlit application for document analysis using RAG
 
 ## Running Locally
 
-Install the required packages and run Streamlit:
+Follow these steps to start the app on your machine:
+
+1. (Optional) Create and activate a virtual environment.
+2. Install dependencies:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Provide an OpenAI API key (see [Managing Secrets](#managing-secrets)).
+4. Launch Streamlit:
+
+   ```bash
+   streamlit run app.py
+   ```
+
+Then open [http://localhost:8501](http://localhost:8501) in your browser.
+
+### Docker
+
+If you prefer running with Docker, use:
 
 ```bash
-pip install -r requirements.txt
-streamlit run app.py
+docker-compose up --build
 ```
 
 ## Managing Secrets
@@ -26,3 +44,17 @@ The application expects an OpenAI API key. You can provide it in two ways:
 
 Do **not** commit your actual `secrets.toml` file or any `.env` files. The provided `.gitignore` already excludes them to keep credentials private.
 
+
+## Text Classification
+
+A helper script `classification.py` trains a Naive Bayes text classifier
+from a CSV file and predicts labels for new questions.
+
+1. Prepare a CSV file with `text` and `label` columns.
+2. Run the script:
+
+   ```bash
+   python classification.py data.csv "질문 내용"
+   ```
+
+The script prints the predicted label based on the trained data.
