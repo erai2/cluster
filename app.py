@@ -8,15 +8,17 @@ import pandas as pd
 import plotly.express as px
 import psycopg2
 import psycopg2.extras
+import os, streamlit as st
 
-# ──────────────────────────────────────────────────────────────────────────────
-# DB 연결 (Streamlit Cloud 친화형)
-# ──────────────────────────────────────────────────────────────────────────────
-DB_URL = st.secrets.get("DB_URL") or os.environ.get("DB_URL")
+# DB_URL 우선순위: Streamlit Secrets > 환경변수 > (옵션) 하드코딩 기본값
+DB_URL = (
+    st.secrets.get("DB_URL")
+    or os.environ.get("DB_URL")
+    or None  # 필요하면 "postgresql://user:pass@host:5432/dbname" 기본값을 넣어도 됩니다
+)
 if not DB_URL:
-    st.error("⚠️ DB_URL이 설정되어 있지 않습니다. Streamlit Secrets 또는 환경변수에 DB_URL을 넣어주세요.")
+    st.error("⚠️ DB_URL이 설정되어 있지 않습니다. Secrets 또는 환경변수에 DB_URL을 넣어주세요.")
     st.stop()
-
 @st.cache_resource(show_spinner=False)
 def get_conn():
     conn = psycopg2.connect(DB_URL)
@@ -237,3 +239,4 @@ if do_load:
             st.success(f"업데이트 {updated}건 완료")
 
 st.caption(f"DB_URL host: {DB_URL.split('@')[-1] if '@' in DB_URL else '(hidden)'}")
+
