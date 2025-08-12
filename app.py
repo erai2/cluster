@@ -2,8 +2,8 @@ import streamlit as st
 import os
 import pandas as pd
 import json
-import re
 import openai
+import re
 
 from model_utils import extract_cluster_keywords
 from langchain_community.document_loaders import PyPDFLoader, UnstructuredWordDocumentLoader, TextLoader
@@ -15,6 +15,24 @@ from langchain.memory import ConversationBufferMemory
 from sklearn.cluster import KMeans
 from sentence_transformers import SentenceTransformer
 
+from saju_database import (
+    PART_CATEGORIES,
+    initialize_db,
+    add_basic_theory,
+    add_terminology,
+    add_case_study,
+    search_concept,
+    search_terminology,
+    search_case_study,
+    read_file_content,
+    parse_basic_theory_text,
+    parse_terminology_text,
+    parse_case_study_text,
+    get_basic_theory_all,
+    get_terminology_all,
+    get_case_studies_all,
+)
+
 # --- 0. 기본 설정 ---
 st.set_page_config(page_title="통합 문서 분석 시스템", layout="wide")
 st.title("🧩 통합 문서 분석 시스템")
@@ -24,6 +42,61 @@ st.info("문서 기반 Q&A, 요약, 군집 분석과 더불어 텍스트를 구�
 UPLOAD_DIR = "./uploaded_docs"
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
+
+# --- 사주 전문 지식 DB 초기화 ---
+initialize_db()
+
+
+# ---- 사주 DB 입력 폼에서 사용할 파일 업로드 콜백 ----
+
+def handle_basic_theory_file() -> None:
+    file = st.session_state.get("bt_file")
+    if not file:
+        return
+    text = read_file_content(file)
+    data = parse_basic_theory_text(text)
+    if part := data.get("part"):
+        st.session_state.bt_part = part if part in PART_CATEGORIES else st.session_state.bt_part
+    if category := data.get("category"):
+        part_key = st.session_state.get("bt_part")
+        if part_key in PART_CATEGORIES and category in PART_CATEGORIES[part_key]:
+            st.session_state.bt_category = category
+    st.session_state.bt_concept = data.get("concept", "")
+    st.session_state.bt_detail = data.get("detail", "")
+
+
+def handle_terminology_file() -> None:
+    file = st.session_state.get("term_file")
+    if not file:
+        return
+    text = read_file_content(file)
+    data = parse_terminology_text(text)
+    if part := data.get("part"):
+        st.session_state.term_part = part if part in PART_CATEGORIES else st.session_state.term_part
+    if category := data.get("category"):
+        part_key = st.session_state.get("term_part")
+        if part_key in PART_CATEGORIES and category in PART_CATEGORIES[part_key]:
+            st.session_state.term_category = category
+    st.session_state.term_term = data.get("term", "")
+    st.session_state.term_meaning = data.get("meaning", "")
+
+
+def handle_case_file() -> None:
+    file = st.session_state.get("case_file")
+    if not file:
+        return
+    text = read_file_content(file)
+    data = parse_case_study_text(text)
+    if part := data.get("part"):
+        st.session_state.case_part = part if part in PART_CATEGORIES else st.session_state.case_part
+    if category := data.get("category"):
+        part_key = st.session_state.get("case_part")
+        if part_key in PART_CATEGORIES and category in PART_CATEGORIES[part_key]:
+            st.session_state.case_category = category
+    st.session_state.case_birth = data.get("birth_info", "")
+    st.session_state.case_chart = data.get("chart", "")
+    st.session_state.case_analysis = data.get("analysis", "")
+    st.session_state.case_result = data.get("result", "")
 
 # --- 1. 핵심 로직 함수 ---
 
@@ -189,10 +262,11 @@ with st.sidebar:
 
 # 메인 화면 탭
 tabs = st.tabs([
-    "💬 문서 기반 Q&A (RAG)", 
-    "✍️ 문서 요약", 
-    "📊 문서 군집 분석", 
-    "📜 텍스트 구조화 및 JSON 내보내기"
+    "💬 문서 기반 Q&A (RAG)",
+    "✍️ 문서 요약",
+    "📊 문서 군집 분석",
+    "📜 텍스트 구조화 및 JSON 내보내기",
+    "🔮 사주 지식 DB"
 ])
 
 # --- Tab 1: RAG Q&A ---
@@ -333,3 +407,87 @@ with tabs[3]:
             st.header("💾 JSON 파일로 내보내기")
             final_json = json.dumps(st.session_state.structured_data, indent=2, ensure_ascii=False)
             st.download_button("visualization_data.json 다운로드", final_json, "visualization_data.json", "application/json")
+
+# --- Tab 5: 사주 지식 DB ---
+with tabs[4]:
+    st.subheader("전문 사주 지식 관리 및 검색")
+    st.info("기본 이론, 전문용어, 사례를 추가하고 검색할 수 있습니다.")
+
+    db_tabs = st.tabs(["기본 이론", "전문 용어", "사례 연구"])
+
+    # 기본 이론 입력/검색 UI
+    with db_tabs[0]:
+        st.markdown("#### 기본 이론 입력")
+        with st.form("basic_theory_form"):
+            st.file_uploader(
+                "문서 업로드",
+                type=["txt", "pdf", "docx"],
+                key="bt_file",
+                on_change=handle_basic_theory_file,
+            )
+            part = st.selectbox("단원", list(PART_CATEGORIES.keys()), key="bt_part")
+            cat = st.selectbox("카테고리", PART_CATEGORIES[part], key="bt_category")
+            concept = st.text_input("개념", key="bt_concept")
+            detail = st.text_area("상세 설명", key="bt_detail")
+            if st.form_submit_button("추가"):
+                add_basic_theory(f"{part} > {cat}", concept, detail)
+                st.success("등록되었습니다.")
+        st.markdown("#### 기본 이론 검색")
+        keyword = st.text_input("검색어", key="bt_search")
+        if st.button("검색", key="bt_search_btn"):
+            result_df = search_concept(keyword)
+            st.dataframe(result_df) if not result_df.empty else st.write("검색 결과가 없습니다.")
+        st.markdown("#### 등록된 기본 이론")
+        st.dataframe(get_basic_theory_all())
+
+    # 전문 용어 입력/검색 UI
+    with db_tabs[1]:
+        st.markdown("#### 용어 입력")
+        with st.form("terminology_form"):
+            st.file_uploader(
+                "문서 업로드",
+                type=["txt", "pdf", "docx"],
+                key="term_file",
+                on_change=handle_terminology_file,
+            )
+            part = st.selectbox("단원", list(PART_CATEGORIES.keys()), key="term_part")
+            cat = st.selectbox("분류", PART_CATEGORIES[part], key="term_category")
+            term = st.text_input("용어", key="term_term")
+            meaning = st.text_area("의미", key="term_meaning")
+            if st.form_submit_button("추가"):
+                add_terminology(term, meaning, f"{part} > {cat}")
+                st.success("등록되었습니다.")
+        st.markdown("#### 용어 검색")
+        keyword = st.text_input("검색어", key="term_search")
+        if st.button("검색", key="term_search_btn"):
+            result_df = search_terminology(keyword)
+            st.dataframe(result_df) if not result_df.empty else st.write("검색 결과가 없습니다.")
+        st.markdown("#### 등록된 용어")
+        st.dataframe(get_terminology_all())
+
+    # 사례 연구 입력/검색 UI
+    with db_tabs[2]:
+        st.markdown("#### 사례 입력")
+        with st.form("case_form"):
+            st.file_uploader(
+                "문서 업로드",
+                type=["txt", "pdf", "docx"],
+                key="case_file",
+                on_change=handle_case_file,
+            )
+            part = st.selectbox("단원", list(PART_CATEGORIES.keys()), key="case_part")
+            cat = st.selectbox("분류", PART_CATEGORIES[part], key="case_category")
+            birth_info = st.text_input("출생정보", key="case_birth")
+            chart = st.text_area("명식", key="case_chart")
+            analysis = st.text_area("분석", key="case_analysis")
+            result = st.text_area("결과", key="case_result")
+            if st.form_submit_button("추가"):
+                add_case_study(birth_info, chart, analysis, result, f"{part} > {cat}")
+                st.success("등록되었습니다.")
+        st.markdown("#### 사례 검색")
+        keyword = st.text_input("검색어", key="case_search")
+        if st.button("검색", key="case_search_btn"):
+            result_df = search_case_study(keyword)
+            st.dataframe(result_df) if not result_df.empty else st.write("검색 결과가 없습니다.")
+        st.markdown("#### 등록된 사례")
+        st.dataframe(get_case_studies_all())

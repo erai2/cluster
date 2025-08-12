@@ -10,10 +10,17 @@ __pycache__/
 # Node
 node_modules/
 frontend/node_modules/
+frontend/dist/
+package-lock.json
 
 # Temporary and sample files
 uploaded_docs/
+uploads/
 *.html
+# Local SQLite database
+saju.db
+# allow Vite entry point
+!frontend/index.html
 case.json
 saju_data.json
 

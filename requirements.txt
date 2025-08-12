@@ -6,7 +6,11 @@ faiss-cpu
 sentence-transformers
 scikit-learn
 pypdf
+python-docx
 unstructured
 pandas
 openai
 tiktoken
+
+fastapi
+uvicorn
