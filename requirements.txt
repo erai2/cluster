@@ -6,6 +6,6 @@ python-docx
 pypdf
 regex
 tqdm
-
+pytest
 httpx
 scikit-learn
