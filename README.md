@@ -44,3 +44,17 @@ The application expects an OpenAI API key. You can provide it in two ways:
 
 Do **not** commit your actual `secrets.toml` file or any `.env` files. The provided `.gitignore` already excludes them to keep credentials private.
 
+
+## Text Classification
+
+A helper script `classification.py` trains a Naive Bayes text classifier
+from a CSV file and predicts labels for new questions.
+
+1. Prepare a CSV file with `text` and `label` columns.
+2. Run the script:
+
+   ```bash
+   python classification.py data.csv "질문 내용"
+   ```
+
+The script prints the predicted label based on the trained data.
