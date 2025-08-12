@@ -4,11 +4,29 @@ This repository contains a Streamlit application for document analysis using RAG
 
 ## Running Locally
 
-Install the required packages and run Streamlit:
+Follow these steps to start the app on your machine:
+
+1. (Optional) Create and activate a virtual environment.
+2. Install dependencies:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Provide an OpenAI API key (see [Managing Secrets](#managing-secrets)).
+4. Launch Streamlit:
+
+   ```bash
+   streamlit run app.py
+   ```
+
+Then open [http://localhost:8501](http://localhost:8501) in your browser.
+
+### Docker
+
+If you prefer running with Docker, use:
 
 ```bash
-pip install -r requirements.txt
-streamlit run app.py
+docker-compose up --build
 ```
 
 ## Managing Secrets
