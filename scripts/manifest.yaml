@@ -1,0 +1,39 @@
+# scripts/manifest.yaml
+scripts:
+  ingest_chunks.py:
+    params:
+      path:
+        label: "문서 경로"
+        type: str
+        default: "uploads/my_docs"
+        help: "청크로 나눌 문서 디렉토리"
+      batch_size:
+        label: "배치 크기"
+        type: int
+        default: 200
+      max_len:
+        label: "청크 최대 길이"
+        type: int
+        default: 1200
+
+  extract_terms.py:
+    params:
+      min_conf:
+        label: "최소 신뢰도"
+        type: float
+        default: 0.5
+
+  apply_rules.py:
+    params:
+      min_score:
+        label: "최소 점수"
+        type: float
+        default: 0.5
+      limit:
+        label: "처리 제한"
+        type: int
+        default: 0
+      dry:
+        label: "드라이런"
+        type: bool
+        default: false
