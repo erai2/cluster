@@ -1,0 +1,16 @@
+services:
+  streamlit:
+    image: python:3.11-slim
+    working_dir: /app
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements.txt &&
+             streamlit run app.py --server.address=0.0.0.0 --server.port=8501"
+    environment:
+      # Compose 네트워크에선 db 서비스명으로 접근
+      DB_URL: postgresql://postgres:postgres@db:5432/databox
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./:/app
+    depends_on:
+      - db
