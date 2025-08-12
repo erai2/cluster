@@ -1,5 +1,8 @@
+import { useState } from 'react';
+
+// 규칙을 표 형태로 관리하는 컴포넌트
 export default function RuleTable({ rules, setRules }) {
-  const [newRule, setNewRule] = useState({condition:"", action:""});
+  const [newRule, setNewRule] = useState({ condition: "", action: "" });
 
   // 추가
   const addRule = async () => {
