@@ -1,0 +1,17 @@
+httpx
+networkx
+numpy
+openai
+pandas
+pandas>=2.2
+plotly>=5.22
+psycopg2-binary>=2.9
+pypdf
+pytest
+python-docx
+pyvis
+regex
+scikit-learn
+streamlit
+streamlit==1.36.0
+tqdm
