@@ -3,3 +3,6 @@ pip install streamlit openai pandas numpy PyPDF2 python-docx chardet
 mkdir .streamlit
 echo 'OPENAI_API_KEY="sk-..."' > .streamlit/secrets.toml
 streamlit run app.py
+---
+pip install streamlit psycopg2 pandas numpy PyPDF2 python-docx chardet openai
+streamlit run app_postgres.py
