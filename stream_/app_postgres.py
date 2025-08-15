@@ -1,188 +1,159 @@
 import streamlit as st
 import psycopg2
 import pandas as pd
-import openai
 import json
-import tempfile
-import os
-import numpy as np
+import openai
+from datetime import datetime
 
-from PyPDF2 import PdfReader
-import docx
-import chardet
-
-# === 설정 ===
+# =========================
+# 환경 설정 (Secrets)
+# =========================
 openai.api_key = st.secrets["OPENAI_API_KEY"]
-DB_CONFIG = st.secrets["postgres"]  # .streamlit/secrets.toml 에서 불러오기
 
-# === DB 연결 ===
+DB_CONFIG = {
+    "host": st.secrets["DB_HOST"],
+    "dbname": st.secrets["DB_NAME"],
+    "user": st.secrets["DB_USER"],
+    "password": st.secrets["DB_PASS"],
+    "port": st.secrets["DB_PORT"]
+}
+
+# =========================
+# DB 연결 함수
+# =========================
 def get_conn():
-    return psycopg2.connect(
-        host=DB_CONFIG["host"],
-        dbname=DB_CONFIG["dbname"],
-        user=DB_CONFIG["user"],
-        password=DB_CONFIG["password"],
-        port=DB_CONFIG["port"]
-    )
+    return psycopg2.connect(**DB_CONFIG)
 
-# === DB 초기화 ===
+# =========================
+# DB 초기화
+# =========================
 def init_db():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS terms (
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS original_docs (
+            id SERIAL PRIMARY KEY,
+            filename TEXT,
+            content TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS structured_terms (
             id SERIAL PRIMARY KEY,
             category TEXT,
             term TEXT,
             definition TEXT,
             explanation TEXT,
-            examples TEXT,
-            rules TEXT,
-            keywords TEXT,
+            examples JSONB,
+            rules JSONB,
+            keywords JSONB,
             source_file TEXT,
-            embedding BYTEA,
-            date_added TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    """)
-    conn.commit()
-    cur.close()
-    conn.close()
+        """)
+        conn.commit()
 
-# === 파일 텍스트 추출 ===
-def extract_text(file):
-    ext = file.name.split(".")[-1].lower()
-    if ext in ["txt", "md"]:
-        raw = file.read()
-        try:
-            encoding = chardet.detect(raw)["encoding"] or "utf-8"
-            return raw.decode(encoding)
-        except:
-            return raw.decode("utf-8", errors="ignore")
+# =========================
+# DB 저장 함수
+# =========================
+def save_original(filename, content):
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO original_docs (filename, content) VALUES (%s, %s)",
+            (filename, content)
+        )
+        conn.commit()
 
-    elif ext == "pdf":
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(file.read())
-            tmp_path = tmp.name
-        reader = PdfReader(tmp_path)
-        text = "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
-        os.remove(tmp_path)
-        return text
+def save_structured(data, source_file):
+    with get_conn() as conn, conn.cursor() as cur:
+        for item in data:
+            cur.execute("""
+                INSERT INTO structured_terms
+                (category, term, definition, explanation, examples, rules, keywords, source_file)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (
+                item.get('category'), item.get('term'), item.get('definition'),
+                item.get('explanation'),
+                json.dumps(item.get('examples', []), ensure_ascii=False),
+                json.dumps(item.get('rules', []), ensure_ascii=False),
+                json.dumps(item.get('keywords', []), ensure_ascii=False),
+                source_file
+            ))
+        conn.commit()
 
-    elif ext in ["docx", "doc"]:
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(file.read())
-            tmp_path = tmp.name
-        doc = docx.Document(tmp_path)
-        text = "\n".join([para.text for para in doc.paragraphs])
-        os.remove(tmp_path)
-        return text
-
-    elif ext == "csv":
-        df = pd.read_csv(file)
-        return "\n".join(df.astype(str).apply(lambda x: " ".join(x), axis=1))
-
-    else:
-        st.error("지원하지 않는 파일 형식입니다.")
-        return ""
-
-# === AI 분석 ===
-def extract_terms(text):
+# =========================
+# AI 구조화 함수
+# =========================
+def ai_extract_terms(text):
     prompt = f"""
     다음 문서에서 주요 용어, 정의, 설명, 사례, 규칙, 키워드를 JSON 배열로 출력:
-    - category
-    - term
-    - definition
-    - explanation
-    - examples
-    - rules
-    - keywords
-
-    문서:
     {text}
     """
     resp = openai.ChatCompletion.create(
         model="gpt-4o-mini",
-        messages=[{"role":"user","content":prompt}],
+        messages=[{"role": "user", "content": prompt}],
         temperature=0
     )
     return json.loads(resp.choices[0].message.content)
 
-# === 임베딩 생성 ===
-def get_embedding(text):
-    resp = openai.Embedding.create(
-        model="text-embedding-3-small",
-        input=text
-    )
-    return np.array(resp["data"][0]["embedding"], dtype=np.float32)
+# =========================
+# Streamlit UI
+# =========================
+st.set_page_config(page_title="문서 AI 구조화 & PostgreSQL", layout="wide")
+st.title("📄 문서 AI 구조화 & PostgreSQL 저장기")
 
-# === DB 저장 ===
-def save_to_db(data, source_file):
-    conn = get_conn()
-    cur = conn.cursor()
-    for item in data:
-        emb = get_embedding(item.get('definition', '') + " " + item.get('explanation', ''))
-        cur.execute("""
-            INSERT INTO terms (category, term, definition, explanation, examples, rules, keywords, source_file, embedding)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        """, (
-            item.get('category', ''),
-            item.get('term', ''),
-            item.get('definition', ''),
-            item.get('explanation', ''),
-            json.dumps(item.get('examples', []), ensure_ascii=False),
-            json.dumps(item.get('rules', []), ensure_ascii=False),
-            json.dumps(item.get('keywords', []), ensure_ascii=False),
-            source_file,
-            psycopg2.Binary(emb.tobytes())
-        ))
-    conn.commit()
-    cur.close()
-    conn.close()
-
-# === 의미 검색 ===
-def semantic_search(query, top_n=5):
-    q_emb = get_embedding(query)
-    conn = get_conn()
-    df = pd.read_sql("SELECT * FROM terms", conn)
-    conn.close()
-    if df.empty:
-        return pd.DataFrame()
-    df["embedding"] = df["embedding"].apply(lambda x: np.frombuffer(x, dtype=np.float32))
-    df["score"] = df["embedding"].apply(lambda e: np.dot(q_emb, e) / (np.linalg.norm(q_emb) * np.linalg.norm(e)))
-    return df.sort_values("score", ascending=False).head(top_n).drop(columns=["embedding"])
-
-# === UI ===
-st.set_page_config(page_title="문서 AI 분석 DB (PostgreSQL)", layout="wide")
-st.title("📄 문서 → AI 용어 분석 DB (PostgreSQL + 임베딩 검색)")
-
+# 초기화
 init_db()
 
-tab1, tab2, tab3 = st.tabs(["📥 업로드/분석", "🔍 DB 검색", "🤖 의미 검색"])
+tab1, tab2 = st.tabs(["1️⃣ 업로드 & 저장", "2️⃣ DB 조회/수정/삭제"])
 
+# -------------------------
+# 1️⃣ 업로드 & 저장
+# -------------------------
 with tab1:
-    uploaded = st.file_uploader("문서 업로드", type=["txt","md","pdf","docx","doc","csv"])
+    uploaded = st.file_uploader("문서 업로드", type=["txt", "md", "pdf", "docx"])
     if uploaded:
-        text = extract_text(uploaded)
-        if text:
-            st.subheader("📌 원본 텍스트 (미리보기)")
-            st.text_area("원본", text[:3000], height=200)
-            if st.button("AI 분석 실행"):
-                terms = extract_terms(text)
-                save_to_db(terms, uploaded.name)
-                st.success(f"{len(terms)} 개의 용어 저장 완료 (파일: {uploaded.name})")
-                st.json(terms)
+        raw_text = uploaded.read().decode("utf-8", errors="ignore")
+        st.subheader("📌 추출된 원문 (미리보기)")
+        st.text_area("원문", raw_text[:2000], height=300)
 
+        if st.button("AI 구조화 & DB 저장"):
+            # 1. 원문 저장
+            save_original(uploaded.name, raw_text)
+
+            # 2. AI 구조화
+            with st.spinner("AI가 문서를 분석 중입니다..."):
+                structured_data = ai_extract_terms(raw_text)
+
+            # 3. 구조화 데이터 저장
+            save_structured(structured_data, uploaded.name)
+
+            st.success(f"✅ {len(structured_data)} 개 항목 저장 완료!")
+
+# -------------------------
+# 2️⃣ DB 조회/수정/삭제
+# -------------------------
 with tab2:
-    conn = get_conn()
-    df = pd.read_sql("SELECT * FROM terms", conn)
-    conn.close()
-    search = st.text_input("키워드 검색")
-    if search:
-        df = df[df.apply(lambda row: search.lower() in str(row).lower(), axis=1)]
-    st.dataframe(df, use_container_width=True)
+    st.subheader("📂 원문 목록")
+    orig_df = pd.read_sql("SELECT * FROM original_docs ORDER BY id DESC", get_conn())
+    st.dataframe(orig_df, use_container_width=True)
 
-with tab3:
-    query = st.text_input("자연어 검색 (예: '부모성과 관련된 규칙')")
-    if query:
-        results = semantic_search(query)
-        st.dataframe(results, use_container_width=True)
+    st.subheader("📂 구조화 데이터")
+    df = pd.read_sql("SELECT * FROM structured_terms ORDER BY id DESC", get_conn())
+    edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True)
+
+    if st.button("💾 수정 저장"):
+        with get_conn() as conn, conn.cursor() as cur:
+            for _, row in edited_df.iterrows():
+                cur.execute("""
+                    UPDATE structured_terms
+                    SET category=%s, term=%s, definition=%s, explanation=%s
+                    WHERE id=%s
+                """, (row['category'], row['term'], row['definition'], row['explanation'], row['id']))
+        st.success("수정 완료!")
+
+    del_id = st.number_input("삭제할 ID", step=1)
+    if st.button("🗑 삭제"):
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM structured_terms WHERE id=%s", (del_id,))
+        st.warning(f"{del_id}번 삭제 완료")
