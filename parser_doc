@@ -1,0 +1,124 @@
+#streamlit_app.py
+import os
+import streamlit as st
+from modules import case_parser
+from modules.vector_manager import ingest_document, search_query
+from modules.rag_search import answer_question
+from modules.history_manager import log_qa, get_history
+from modules.notion_sync import push_to_notion
+
+# -------------------------------
+# 기본 세팅
+# -------------------------------
+st.set_page_config(page_title="📚 철학/명리학 연구 플랫폼", layout="wide")
+DATA_DIR = "data"
+
+if "docs" not in st.session_state:
+    st.session_state.docs = []
+
+# -------------------------------
+# 사이드바 메뉴
+# -------------------------------
+st.sidebar.title("📌 메뉴")
+page = st.sidebar.radio("이동", ["문헌 업로드", "질문/답변", "히스토리", "사례/규칙 추출", "Notion 연동"])
+
+# -------------------------------
+# 1) 문헌 업로드
+# -------------------------------
+if page == "문헌 업로드":
+    st.header("📂 문헌 업로드 (PDF/TXT/DOCX/MD/JSON/XLSX)")
+    uploaded_files = st.file_uploader("문헌 파일을 업로드하세요", type=["pdf", "txt", "docx", "md", "json", "xlsx"], accept_multiple_files=True)
+
+    if uploaded_files:
+        for f in uploaded_files:
+            file_path = os.path.join(DATA_DIR, "raw_texts", f.name)
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            with open(file_path, "wb") as out:
+                out.write(f.read())
+            st.session_state.docs.append(file_path)
+        st.success(f"✅ {len(uploaded_files)}개 파일 업로드 완료!")
+
+        if st.button("👉 벡터DB에 저장"):
+            total_chunks = 0
+            for path in st.session_state.docs:
+                n_chunks = ingest_document(path)
+                total_chunks += n_chunks
+            st.success(f"✅ 총 {total_chunks}개 청크 저장 완료 (벡터화 완료)")
+
+# -------------------------------
+# 2) 질문/답변
+# -------------------------------
+elif page == "질문/답변":
+    st.header("🤖 AI 질의응답 (RAG 기반)")
+    query = st.text_input("궁금한 내용을 입력하세요:")
+
+    if st.button("질문하기"):
+        if not st.session_state.docs:
+            st.warning("먼저 문헌을 업로드하세요.")
+        else:
+            answer = answer_question(query)
+            st.markdown("### 📝 답변")
+            st.write(answer)
+
+            log_qa(query, answer)
+            st.success("✅ 히스토리에 저장됨")
+
+            if st.checkbox("Notion에도 저장"):
+                push_to_notion(query, answer)
+                st.info("📤 Notion에 저장 완료!")
+
+# -------------------------------
+# 3) 히스토리
+# -------------------------------
+elif page == "히스토리":
+    st.header("📜 질문-답변 히스토리")
+    history = get_history()
+    if not history:
+        st.info("아직 저장된 히스토리가 없습니다.")
+    else:
+        for i, item in enumerate(history[::-1], 1):
+            st.markdown(f"**Q{i}: {item['q']}**")
+            st.write(item['a'])
+            st.markdown("---")
+
+# -------------------------------
+# 4) 사례/규칙 추출
+# -------------------------------
+elif page == "사례/규칙 추출":
+    st.header("📘 사례/규칙 자동 추출기")
+    if not st.session_state.docs:
+        st.warning("먼저 문헌을 업로드하세요.")
+    else:
+        raw_text = ""
+        for path in st.session_state.docs:
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    raw_text += f.read() + "\n"
+            except:
+                continue
+
+        if st.button("사례/규칙 추출 실행"):
+            cases = case_parser.parse_cases(raw_text)
+            json_path, csv_path = case_parser.save_cases(cases)
+            st.success(f"✅ {len(cases)}개 사례/규칙 추출 완료")
+
+            st.download_button("📥 JSON 다운로드", open(json_path, "rb"), file_name="cases.json")
+            st.download_button("📥 CSV 다운로드", open(csv_path, "rb"), file_name="cases.csv")
+
+            st.subheader("🔍 미리보기")
+            for c in cases[:5]:
+                st.json(c)
+
+# -------------------------------
+# 5) Notion 연동
+# -------------------------------
+elif page == "Notion 연동":
+    st.header("🗄️ Notion 연동 관리")
+    st.write("환경변수(`NOTION_TOKEN`, `NOTION_DB_ID`)를 설정해야 합니다.")
+
+    sample_q = "철학적 합의 개념은?"
+    sample_a = "합의는 개인 간의 의견 차이를 조율하여 공동 결정을 내리는 과정이다."
+
+    if st.button("테스트 데이터 전송"):
+        push_to_notion(sample_q, sample_a)
+        st.success("✅ 샘플 데이터가 Notion DB에 기록됨")
