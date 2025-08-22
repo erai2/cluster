@@ -1,0 +1,16 @@
+streamlit
+python-dotenv
+openai
+langchain
+langchain-openai
+langchain-community
+pymupdf
+python-docx
+pandas
+faiss-cpu
+notion-client
+scikit-learn
+matplotlib
+wordcloud
+networkx
+pyvis
